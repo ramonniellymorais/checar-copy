@@ -1,0 +1,225 @@
+#!/usr/bin/env perl
+#
+# checar-copy — passa uma copy pelas regras que reprovam texto com cara de formula.
+#
+# uso:  checar-copy peca.md
+#       checar-copy slide1.txt slide2.txt legenda.txt
+#       cat peca.txt | checar-copy
+#       checar-copy --lista
+#
+# saida: relatorio com linha e trecho de cada problema.
+# codigo de saida: 0 = passou | 1 = tem reprovacao | 2 = erro de uso
+#
+# Sem dependencia nenhuma: perl ja vem instalado no macOS e no Linux.
+#
+# github.com/ramonniellymorais/checar-copy
+
+use strict;
+use warnings;
+use utf8;
+binmode(STDOUT, ':encoding(UTF-8)');
+binmode(STDERR, ':encoding(UTF-8)');
+
+my $VERSAO = '1.0.0';
+
+# ---------------------------------------------------------------------------
+# As regras.
+#
+# nivel  'reprova' = refaz o trecho. 'aviso' = olha com carinho, pode ser justificavel.
+# ---------------------------------------------------------------------------
+my @REGRAS = (
+  {
+    id      => 'binaria',
+    nome    => 'Construcao binaria "X nao e A. E B."',
+    nivel   => 'reprova',
+    # a virada quebrada em duas frases opostas, mesmo com quebra de linha no meio
+    regex   => qr/\b(?:n[ãa]o)\s+[ée]\s+[^.!?\n]{2,60}[.!?]\s*(?:[ÉéE])\s/u,
+    porque  => 'Paralelismo curto em duas frases opostas e cara de copywriter, nao de gente falando. Desenrole a virada dentro de uma frase so, com travessao, conjuncao ou pergunta.',
+    exemplo => 'em vez de "Pitch nao e talento. E estrutura." escreva "Pitch nao e talento bonito — e a frase que o cliente repete em casa, na hora do jantar."',
+  },
+  {
+    id      => 'pra',
+    nome    => '"pra" em vez de "para"',
+    nivel   => 'reprova',
+    regex   => qr/(?<![\p{L}])pra(?![\p{L}])/iu,
+    porque  => 'Em copy publicada, "para" por extenso. A forma curta rouba formalidade de leitura sem ganhar intimidade.',
+    exemplo => '"pra voce" vira "para voce"',
+  },
+  {
+    id      => 'emoji',
+    nome    => 'Emoji',
+    nivel   => 'reprova',
+    regex   => qr/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{2190}-\x{21FF}]/u,
+    porque  => 'Emoji faz o texto trabalhar menos. Se a frase precisa do desenho pra ter tom, a frase ainda nao esta pronta.',
+    exemplo => 'tire o emoji e veja se a linha se sustenta sozinha. Se nao se sustentar, reescreva a linha.',
+  },
+  {
+    id      => 'preco',
+    nome    => 'Preco de produto em peca organica',
+    nivel   => 'reprova',
+    regex   => qr/R\$\s?\d/u,
+    porque  => 'Valor e informacao de pre-compra: vive na pagina de vendas, na DM, no e-mail de oferta. No feed, ele mata a conversa antes dela comecar.',
+    exemplo => 'fale em condicao ("lote fecha sexta") sem o numero. Excecao unica: numero de RESULTADO de cliente, que e prova, nao preco.',
+  },
+  {
+    id      => 'anedota',
+    nome    => 'Anedota provavelmente inventada',
+    nivel   => 'reprova',
+    regex   => qr/\b(?:Conheci\s+(?:um|uma)|Tive\s+(?:um|uma)\s+(?:aluno|aluna|cliente)|Outro\s+dia\s+me\s+procurou|Esses\s+dias\s+chegou|Atendi\s+(?:um|uma)|Veio\s+(?:um|uma)\s+(?:cara|moc))/iu,
+    porque  => 'Soa factual, entao funciona como prova. Se nao existe transcricao ou registro do caso, e prova falsa — e o leitor que conhece o mercado sente.',
+    exemplo => 'ou cite um caso real e verificavel, ou formule como tese: "a maioria das criadoras que...".',
+  },
+  {
+    id      => 'generico',
+    nome    => 'Palavra-marca de copy generica',
+    nivel   => 'aviso',
+    regex   => qr/\b(?:descubr[ae]|descobrir\s+o\s+segredo|segredo\s+revelado|f[óo]rmula\s+m[áa]gica|liberdade\s+financeira|m[ée]todo\s+secreto|garanta\s+sua\s+vaga|[úu]ltima\s+chance|incr[íi]vel|simplesmente|transforme\s+sua\s+vida)\b/iu,
+    porque  => 'Sao as palavras que aparecem em todo anuncio do nicho. Elas nao estao erradas, estao gastas — e gasto nao diferencia.',
+    exemplo => 'troque pela coisa concreta que a palavra estava tentando resumir.',
+  },
+  {
+    id      => 'urgencia',
+    nome    => 'Urgencia sem data',
+    nivel   => 'aviso',
+    regex   => qr/\b(?:corre\s+que\s+(?:est[áa]|ta)\s+acabando|[úu]ltimas\s+vagas|por\s+tempo\s+limitado|s[óo]\s+hoje)\b/iu,
+    porque  => 'Urgencia sem hora e data marcada e urgencia fabricada. Funciona uma vez e custa a confianca nas proximas.',
+    exemplo => 'diga a data real: "as inscricoes fecham sexta, dia 12, as 23h59".',
+  },
+);
+
+# ---------------------------------------------------------------------------
+sub uso {
+  print <<"FIM";
+checar-copy $VERSAO — passa uma copy pelas regras que reprovam texto com cara de formula.
+
+uso:
+  checar-copy arquivo.md              checa um arquivo
+  checar-copy slide*.txt legenda.txt  checa varios
+  cat peca.txt | checar-copy          checa o que vier da entrada padrao
+  checar-copy --lista                 mostra as regras e por que cada uma existe
+
+codigo de saida: 0 passou | 1 tem reprovacao | 2 erro de uso
+FIM
+}
+
+sub lista_regras {
+  print "checar-copy $VERSAO — " . scalar(@REGRAS) . " regras\n\n";
+  for my $r (@REGRAS) {
+    my $tag = $r->{nivel} eq 'reprova' ? 'REPROVA' : 'AVISO  ';
+    print "[$tag] $r->{nome}\n";
+    print "          $r->{porque}\n";
+    print "          Como resolver: $r->{exemplo}\n\n";
+  }
+}
+
+# devolve o numero da linha correspondente a um deslocamento no texto inteiro
+sub linha_do_offset {
+  my ($texto, $offset) = @_;
+  my $trecho = substr($texto, 0, $offset);
+  my $n = ($trecho =~ tr/\n//);
+  return $n + 1;
+}
+
+# recorta o trecho ao redor do achado, numa linha so
+sub contexto {
+  my ($texto, $ini, $fim) = @_;
+  my $de   = $ini - 30 < 0 ? 0 : $ini - 30;
+  my $ate  = $fim + 30 > length($texto) ? length($texto) : $fim + 30;
+  my $snip = substr($texto, $de, $ate - $de);
+  $snip =~ s/\s+/ /g;
+  $snip =~ s/^\s+|\s+$//g;
+  $snip = "..." . $snip if $de > 0;
+  $snip = $snip . "..." if $ate < length($texto);
+  return $snip;
+}
+
+sub checar {
+  my ($texto, $rotulo) = @_;
+  my (@reprovas, @avisos);
+
+  for my $r (@REGRAS) {
+    while ($texto =~ /$r->{regex}/g) {
+      my $ini = $-[0];
+      my $fim = $+[0];
+      my $achado = {
+        regra   => $r,
+        linha   => linha_do_offset($texto, $ini),
+        trecho  => contexto($texto, $ini, $fim),
+      };
+      if ($r->{nivel} eq 'reprova') { push @reprovas, $achado }
+      else                          { push @avisos,   $achado }
+    }
+  }
+
+  print "\n" . ("-" x 68) . "\n";
+  print "$rotulo\n";
+  print ("-" x 68);
+  print "\n";
+
+  if (!@reprovas && !@avisos) {
+    print "\nPASSOU. Nenhuma das " . scalar(@REGRAS) . " regras disparou.\n";
+    print "\nO que este script NAO consegue ver: se o texto tem ponto de vista,\n";
+    print "se a historia e sua e se alguem mandaria isso para uma amiga.\n";
+    return 0;
+  }
+
+  my %ja_explicada;
+
+  for my $a (sort { $a->{linha} <=> $b->{linha} } @reprovas) {
+    print "\n[REPROVA] linha $a->{linha} — $a->{regra}{nome}\n";
+    print "          $a->{trecho}\n";
+    unless ($ja_explicada{$a->{regra}{id}}++) {
+      print "          Por que: $a->{regra}{porque}\n";
+      print "          Saida:   $a->{regra}{exemplo}\n";
+    }
+  }
+
+  for my $a (sort { $a->{linha} <=> $b->{linha} } @avisos) {
+    print "\n[AVISO]   linha $a->{linha} — $a->{regra}{nome}\n";
+    print "          $a->{trecho}\n";
+    unless ($ja_explicada{$a->{regra}{id}}++) {
+      print "          Por que: $a->{regra}{porque}\n";
+      print "          Saida:   $a->{regra}{exemplo}\n";
+    }
+  }
+
+  printf("\n%d reprovacao(oes), %d aviso(s).\n", scalar(@reprovas), scalar(@avisos));
+  print "Reprovacao pede reescrita. Aviso pede uma segunda leitura.\n";
+
+  return @reprovas ? 1 : 0;
+}
+
+# ---------------------------------------------------------------------------
+my @arquivos;
+for my $arg (@ARGV) {
+  if ($arg eq '--lista' || $arg eq '-l') { lista_regras(); exit 0 }
+  if ($arg eq '--ajuda' || $arg eq '-h' || $arg eq '--help') { uso(); exit 0 }
+  if ($arg eq '--versao' || $arg eq '-v') { print "checar-copy $VERSAO\n"; exit 0 }
+  if ($arg =~ /^-/) { print STDERR "opcao desconhecida: $arg\n\n"; uso(); exit 2 }
+  push @arquivos, $arg;
+}
+
+my $saida = 0;
+
+if (@arquivos) {
+  for my $f (@arquivos) {
+    unless (-f $f) { print STDERR "arquivo nao encontrado: $f\n"; $saida = 2; next }
+    open(my $fh, '<:encoding(UTF-8)', $f) or do {
+      print STDERR "nao consegui abrir: $f\n"; $saida = 2; next;
+    };
+    local $/;
+    my $texto = <$fh>;
+    close $fh;
+    my $r = checar($texto, $f);
+    $saida = 1 if $r == 1 && $saida != 2;
+  }
+} else {
+  if (-t STDIN) { uso(); exit 2 }
+  local $/;
+  binmode(STDIN, ':encoding(UTF-8)');
+  my $texto = <STDIN>;
+  $saida = checar($texto, 'entrada padrao');
+}
+
+print "\n";
+exit $saida;
