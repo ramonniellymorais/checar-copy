@@ -50,7 +50,7 @@ my @REGRAS = (
     nome    => 'Emoji',
     nivel   => 'reprova',
     regex   => qr/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}\x{2190}-\x{21FF}]/u,
-    porque  => 'Emoji faz o texto trabalhar menos. Se a frase precisa do desenho pra ter tom, a frase ainda nao esta pronta.',
+    porque  => 'Emoji faz o texto trabalhar menos. Se a frase precisa do desenho para ter tom, a frase ainda nao esta pronta.',
     exemplo => 'tire o emoji e veja se a linha se sustenta sozinha. Se nao se sustentar, reescreva a linha.',
   },
   {
