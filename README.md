@@ -141,6 +141,37 @@ Essas quatro perguntas são o trabalho. O script existe para você parar de gast
 
 ---
 
+## O corpus
+
+Junto com o verificador vai um **banco de exemplos** em [`corpus/`](corpus/): trechos
+reprovados, a regra que pegou cada um, o motivo, e a mesma ideia reescrita.
+
+```
+corpus/tiques-pt-br.jsonl   os exemplos, um por linha
+corpus/negativos.jsonl      o que contém o padrão e mesmo assim deve passar
+corpus/RELATORIO.md         quantos foram gerados, quantos passaram, o que caiu
+```
+
+Serve para treinar o olho de quem revisa, para testar verificador próprio, e como
+conjunto de avaliação quando você pede copy em português a um modelo e quer medir
+quanto dela cai nos vícios de sempre.
+
+**Todo exemplo foi verificado rodando este script.** O trecho reprovado tem que
+disparar a própria regra; a versão corrigida tem que sair limpa das sete. O que não
+bateu ficou de fora, com o motivo registrado. Refaça com `python3 corpus/montar.py`.
+
+O `negativos.jsonl` é a parte que costuma faltar: fala citada, discussão sobre a
+própria regra, número de resultado de cliente. Regex não vê contexto, e o arquivo
+documenta esse limite medindo em vez de prometer.
+
+O corpus é também a suíte de regressão — `./testes/rodar.sh` roda o verificador contra
+ele inteiro, porque mexer numa expressão regular para pegar um caso novo quebra outro
+em silêncio.
+
+Corpus em **CC BY 4.0**; o verificador continua **MIT**.
+
+---
+
 ## Continua
 
 - **[stack-marketing-com-ia](https://github.com/ramonniellymorais/stack-marketing-com-ia)** — o que está instalado aqui e para que serve
